@@ -4,4 +4,4 @@ data.json
 # Compiled Touch ID helpers (users build locally with native/build.sh).
 native/Obsidian
 native/touchid-auth
-source/node_modules/
+node_modules/

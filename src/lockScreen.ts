@@ -36,12 +36,11 @@ export class LockScreen {
 		const biometricsSupported = isBiometricPlatformSupported();
 		const securityKeys = this.securityKeysEnabled();
 
-		const overlay = document.createElement("div");
-		overlay.addClass("fingerprint-lock-overlay");
+		const overlay = createDiv({ cls: "fingerprint-lock-overlay" });
 
 		const card = overlay.createDiv({ cls: "fingerprint-lock-card" });
 		card.createDiv({ cls: "fingerprint-lock-icon", text: "\u{1F512}" });
-		card.createEl("div", { cls: "fingerprint-lock-title", text: "Vault locked" });
+		card.createDiv({ cls: "fingerprint-lock-title", text: "Vault locked" });
 
 		let initialStatus: string;
 		if (biometricsSupported) {
