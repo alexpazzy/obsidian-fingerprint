@@ -1,4 +1,4 @@
-# Obsidian Fingerprint
+# Fingerprint Lock
 
 Locks Obsidian behind a full-screen lock screen and unlocks it with your
 fingerprint — **macOS Touch ID** or **Windows Hello** (fingerprint, face, or
@@ -42,13 +42,13 @@ Copy this whole folder into your vault's plugins directory, so it becomes:
 ```
 
 Then in Obsidian: **Settings → Community plugins** → make sure "Restricted
-mode" is off → find "Obsidian Fingerprint" in the list → enable it.
+mode" is off → find "Fingerprint Lock" in the list → enable it.
 
 ## 2a. Windows setup
 
 There is none. If Windows Hello works on your machine (Settings → Accounts →
 Sign-in options — a fingerprint, face, or PIN is enrolled), the plugin works.
-Open **Settings → Obsidian Fingerprint → Test Windows Hello** to confirm:
+Open **Settings → Fingerprint Lock → Test Windows Hello** to confirm:
 you should get the standard Windows Hello dialog.
 
 You can also test the helper standalone from a terminal:
@@ -88,7 +88,7 @@ lock the vault on startup until at least one unlock method can actually
 succeed, so you can never be dead-ended on a fresh install. This works the
 same on macOS and Windows 11.
 
-Open **Settings → Obsidian Fingerprint**:
+Open **Settings → Fingerprint Lock**:
 
 - **Test Touch ID / Test Windows Hello** — confirms the plugin can call the
   helper, without locking anything.

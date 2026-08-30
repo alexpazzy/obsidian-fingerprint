@@ -1,4 +1,7 @@
 .DS_Store
+# Per-user plugin settings (contains the password hash/verifier) — never commit.
+data.json
+# Compiled Touch ID helpers (users build locally with native/build.sh).
 native/Obsidian
 native/touchid-auth
 source/node_modules/

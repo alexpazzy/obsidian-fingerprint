@@ -27,7 +27,7 @@ export class FirstRunSetupModal extends Modal {
 		const { contentEl } = this;
 		const method = getBiometricMethodName();
 
-		this.setTitle("Set up Obsidian Fingerprint");
+		this.setTitle("Set up Fingerprint Lock");
 
 		contentEl.createEl("p", {
 			text:
@@ -113,7 +113,7 @@ export class FirstRunSetupModal extends Modal {
 		void this.plugin.saveSettings().then(() => {
 			if (!hasFallbackPassword(this.plugin.settings)) {
 				new Notice(
-					"No fallback password set. You can add one anytime in Settings → Obsidian Fingerprint.",
+					"No fallback password set. You can add one anytime in Settings → Fingerprint Lock.",
 					8000
 				);
 			}

@@ -104,7 +104,7 @@ export async function registerSecurityKey(
 		const credential = (await navigator.credentials.create({
 			publicKey: {
 				challenge: randomChallenge(),
-				rp: { name: "Obsidian Fingerprint", id: getRpId() },
+				rp: { name: "Fingerprint Lock", id: getRpId() },
 				user: {
 					id: userId,
 					name: "obsidian-vault",

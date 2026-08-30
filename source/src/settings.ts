@@ -85,7 +85,6 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 
 		const method = getBiometricMethodName();
 
-		containerEl.createEl("h2", { text: "Obsidian Fingerprint" });
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
@@ -193,7 +192,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 
 		this.displaySecurityKeySection(containerEl);
 
-		containerEl.createEl("h3", { text: "Password fallback" });
+		new Setting(containerEl).setName("Password fallback").setHeading();
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
@@ -277,7 +276,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 		}
 
 		if (getBiometricPlatform() === "touchid") {
-			containerEl.createEl("h3", { text: "Native Touch ID helper" });
+			new Setting(containerEl).setName("Native Touch ID helper").setHeading();
 			containerEl.createEl("p", {
 				cls: "setting-item-description",
 				text:
@@ -287,7 +286,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					"data never leaves the Secure Enclave and is never seen by this plugin or Obsidian.",
 			});
 		} else if (getBiometricPlatform() === "windows-hello") {
-			containerEl.createEl("h3", { text: "Windows Hello helper" });
+			new Setting(containerEl).setName("Windows Hello helper").setHeading();
 			containerEl.createEl("p", {
 				cls: "setting-item-description",
 				text:
@@ -300,7 +299,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 	}
 
 	private displaySecurityKeySection(containerEl: HTMLElement): void {
-		containerEl.createEl("h3", { text: "Security keys" });
+		new Setting(containerEl).setName("Security keys").setHeading();
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:

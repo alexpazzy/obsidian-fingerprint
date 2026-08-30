@@ -108,7 +108,7 @@ export default class TouchIDLockPlugin extends Plugin {
 		if (!this.hasUsableUnlockMethod()) {
 			new Notice(
 				`Vault was NOT locked: no unlock method is available. Build the ${this.biometricMethodName} ` +
-					"helper or set a fallback password in Settings → Obsidian Fingerprint.",
+					"helper or set a fallback password in Settings → Fingerprint Lock.",
 				10000
 			);
 			return;
