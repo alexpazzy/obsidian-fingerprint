@@ -1,0 +1,4 @@
+.DS_Store
+native/Obsidian
+native/touchid-auth
+source/node_modules/

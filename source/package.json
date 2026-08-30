@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-fingerprint",
+  "version": "1.1.0",
+  "description": "Lock your Obsidian vault and unlock it with your fingerprint (macOS Touch ID; Windows Hello planned).",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit -p tsconfig.json && node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "keywords": ["obsidian-plugin", "touch-id", "macos"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "builtin-modules": "^5.3.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.13.1",
+    "typescript": "^5.6.3"
+  }
+}
