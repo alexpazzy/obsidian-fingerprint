@@ -1,7 +1,7 @@
 {
   "id": "obsidian-fingerprint",
   "name": "Obsidian Fingerprint",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "minAppVersion": "1.4.0",
   "description": "Lock your vault behind a full-screen lock screen and unlock it with your fingerprint — macOS Touch ID or Windows Hello — plus optional security keys and a password fallback.",
   "author": "Alex",

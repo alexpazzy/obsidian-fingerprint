@@ -72,3 +72,65 @@ export async function verifyPassword(
 	const actualHashHex = await hashPassword(password, saltHex);
 	return timingSafeEqual(actualHashHex, expectedHashHex);
 }
+
+// --- Encrypted verifier mode ---------------------------------------------
+// Instead of storing a PBKDF2 hash of the password, store an AES-256-GCM
+// ciphertext of a fixed marker, encrypted with a key derived from the
+// password. Unlocking requires successfully decrypting it, so data.json
+// holds only ciphertext — no password hash at all.
+
+const VERIFIER_MARKER = "obsidian-fingerprint-verifier-v1";
+const GCM_IV_BYTES = 12;
+
+async function deriveAesKey(password: string, saltHex: string): Promise<CryptoKey> {
+	const enc = new TextEncoder();
+	const keyMaterial = await window.crypto.subtle.importKey(
+		"raw",
+		enc.encode(password),
+		{ name: "PBKDF2" },
+		false,
+		["deriveKey"]
+	);
+	return window.crypto.subtle.deriveKey(
+		{
+			name: "PBKDF2",
+			salt: hexToBytes(saltHex),
+			iterations: PBKDF2_ITERATIONS,
+			hash: HASH_ALGO,
+		},
+		keyMaterial,
+		{ name: "AES-GCM", length: KEY_LENGTH_BITS },
+		false,
+		["encrypt", "decrypt"]
+	);
+}
+
+export async function createEncryptedVerifier(password: string, saltHex: string): Promise<string> {
+	const key = await deriveAesKey(password, saltHex);
+	const iv = new Uint8Array(new ArrayBuffer(GCM_IV_BYTES));
+	window.crypto.getRandomValues(iv);
+	const ciphertext = await window.crypto.subtle.encrypt(
+		{ name: "AES-GCM", iv },
+		key,
+		new TextEncoder().encode(VERIFIER_MARKER)
+	);
+	return bufferToHex(iv.buffer) + bufferToHex(ciphertext);
+}
+
+export async function verifyEncryptedVerifier(
+	password: string,
+	saltHex: string,
+	verifierHex: string
+): Promise<boolean> {
+	if (!saltHex || verifierHex.length <= GCM_IV_BYTES * 2) return false;
+	try {
+		const key = await deriveAesKey(password, saltHex);
+		const iv = hexToBytes(verifierHex.slice(0, GCM_IV_BYTES * 2));
+		const ciphertext = hexToBytes(verifierHex.slice(GCM_IV_BYTES * 2));
+		const plaintext = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+		return new TextDecoder().decode(plaintext) === VERIFIER_MARKER;
+	} catch {
+		// AES-GCM authentication fails on a wrong password.
+		return false;
+	}
+}

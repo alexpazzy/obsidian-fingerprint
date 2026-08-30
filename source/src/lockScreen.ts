@@ -1,5 +1,4 @@
 import type TouchIDLockPlugin from "./main";
-import { verifyPassword } from "./crypto";
 import { getBiometricPlatform, isBiometricPlatformSupported } from "./nativeAuth";
 
 export class LockScreen {
@@ -25,6 +24,10 @@ export class LockScreen {
 
 	private securityKeysEnabled(): boolean {
 		return this.plugin.settings.securityKeyEnabled && this.plugin.settings.securityKeys.length > 0;
+	}
+
+	private passwordFallbackAvailable(): boolean {
+		return this.plugin.settings.passwordFallbackEnabled && this.plugin.hasFallbackPassword;
 	}
 
 	show(): void {
@@ -69,7 +72,7 @@ export class LockScreen {
 		}
 
 		let passwordInput: HTMLInputElement | null = null;
-		if (this.plugin.settings.passwordFallbackEnabled && this.plugin.settings.passwordHash) {
+		if (this.passwordFallbackAvailable()) {
 			const row = card.createDiv({ cls: "fingerprint-lock-password-row" });
 			passwordInput = row.createEl("input", {
 				cls: "fingerprint-lock-password-input",
@@ -149,13 +152,15 @@ export class LockScreen {
 	}
 
 	private notInstalledMessage(): string {
+		// Only point at the password field when it's actually on screen.
+		const fallback = this.passwordFallbackAvailable() ? ", or use your password below" : "";
 		if (getBiometricPlatform() === "windows-hello") {
 			return (
 				"The Windows Hello helper script (native/WindowsHelloAuth.ps1) is missing from the " +
-				"plugin folder. Reinstall the plugin, or use your password below."
+				`plugin folder. Reinstall the plugin${fallback}.`
 			);
 		}
-		return "Native Touch ID helper isn't built yet. Run native/build.sh, or use your password below.";
+		return `Native Touch ID helper isn't built yet. Run native/build.sh in the plugin folder, then try again${fallback}.`;
 	}
 
 	private async attemptBiometric(): Promise<void> {
@@ -210,11 +215,7 @@ export class LockScreen {
 	private async attemptPassword(password: string): Promise<void> {
 		if (this.busy || !password) return;
 		this.setBusy(true);
-		const ok = await verifyPassword(
-			password,
-			this.plugin.settings.passwordSalt,
-			this.plugin.settings.passwordHash
-		);
+		const ok = await this.plugin.verifyFallbackPassword(password);
 		this.setBusy(false);
 		if (!this.overlayEl) return;
 

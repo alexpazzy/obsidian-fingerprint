@@ -69,6 +69,11 @@ export function getNativeHelperPath(vault: Vault, pluginDir: string): string | n
 	}
 }
 
+/** Whether the platform helper actually exists on disk (e.g. build.sh has been run on macOS). */
+export function isNativeHelperInstalled(helperPath: string | null): boolean {
+	return helperPath !== null && fs.existsSync(helperPath);
+}
+
 function isErrnoException(err: unknown): err is ExecFileException & { code?: string; killed?: boolean } {
 	return typeof err === "object" && err !== null;
 }

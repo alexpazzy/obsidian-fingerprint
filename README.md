@@ -82,6 +82,12 @@ standalone before touching Obsidian at all:
 
 ## 3. Configure in Obsidian
 
+On the very first launch (before any settings exist), the plugin opens a
+setup dialog prompting you to create a fallback password — and it will not
+lock the vault on startup until at least one unlock method can actually
+succeed, so you can never be dead-ended on a fresh install. This works the
+same on macOS and Windows 11.
+
 Open **Settings → Obsidian Fingerprint**:
 
 - **Test Touch ID / Test Windows Hello** — confirms the plugin can call the
@@ -89,6 +95,11 @@ Open **Settings → Obsidian Fingerprint**:
 - **Set a password fallback** — strongly recommended. If biometrics ever
   fail (sensor issue, external display, whatever), this is your way back
   in without touching the file system.
+- **Encrypt password data (end-to-end)** — optional. Instead of a salted
+  PBKDF2 hash, data.json stores only an AES-256-GCM encrypted verifier;
+  the key is derived from your password on your device and never written
+  anywhere. Toggle it, then (re-)save your password to apply. Uses the
+  built-in Web Crypto API, so it behaves identically on macOS and Windows.
 - **Security keys** — register a YubiKey or other WebAuthn security key,
   then a "Use security key" button appears on the lock screen. Only keys
   you registered can unlock the vault. On Windows, the security-key prompt

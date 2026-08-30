@@ -1,10 +1,18 @@
-import { Plugin } from "obsidian";
-import { DEFAULT_SETTINGS, TouchIDLockSettingTab, type TouchIDLockSettings } from "./settings";
+import { Notice, Plugin } from "obsidian";
+import {
+	DEFAULT_SETTINGS,
+	hasFallbackPassword,
+	TouchIDLockSettingTab,
+	type TouchIDLockSettings,
+} from "./settings";
 import { LockScreen } from "./lockScreen";
+import { FirstRunSetupModal } from "./setupModal";
+import { verifyEncryptedVerifier, verifyPassword } from "./crypto";
 import {
 	getBiometricMethodName,
 	getNativeHelperPath,
 	isBiometricPlatformSupported,
+	isNativeHelperInstalled,
 	runBiometricAuth,
 	type BiometricResult,
 } from "./nativeAuth";
@@ -23,6 +31,7 @@ export default class TouchIDLockPlugin extends Plugin {
 	private blurTimeoutId: number | null = null;
 	private idleIntervalId: number | null = null;
 	private lastActivityAt = Date.now();
+	private firstRun = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -51,8 +60,12 @@ export default class TouchIDLockPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 			this.resetIdleWatcher();
-			if (this.settings.lockOnStartup) {
-				this.lock();
+			if (this.firstRun) {
+				// No data.json yet: prompt for a fallback password before the
+				// first lock, so a biometric failure can't dead-end the user.
+				new FirstRunSetupModal(this.app, this, () => this.startupLock()).open();
+			} else {
+				this.startupLock();
 			}
 		});
 
@@ -71,6 +84,7 @@ export default class TouchIDLockPlugin extends Plugin {
 
 	async loadSettings(): Promise<void> {
 		const stored = (await this.loadData()) as Partial<TouchIDLockSettings> | null;
+		this.firstRun = stored == null;
 		this.settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
 	}
 
@@ -82,6 +96,43 @@ export default class TouchIDLockPlugin extends Plugin {
 		if (this.locked) return;
 		this.locked = true;
 		this.lockScreen.show();
+	}
+
+	/**
+	 * Locks on startup only when at least one unlock method can actually
+	 * succeed; otherwise the lock screen would be a dead end (e.g. macOS with
+	 * the Touch ID helper not yet built and no fallback password).
+	 */
+	private startupLock(): void {
+		if (!this.settings.lockOnStartup) return;
+		if (!this.hasUsableUnlockMethod()) {
+			new Notice(
+				`Vault was NOT locked: no unlock method is available. Build the ${this.biometricMethodName} ` +
+					"helper or set a fallback password in Settings → Obsidian Fingerprint.",
+				10000
+			);
+			return;
+		}
+		this.lock();
+	}
+
+	private hasUsableUnlockMethod(): boolean {
+		if (this.settings.passwordFallbackEnabled && this.hasFallbackPassword) return true;
+		if (this.settings.securityKeyEnabled && this.settings.securityKeys.length > 0) return true;
+		return isBiometricPlatformSupported() && isNativeHelperInstalled(this.nativeHelperPath);
+	}
+
+	get hasFallbackPassword(): boolean {
+		return hasFallbackPassword(this.settings);
+	}
+
+	/** Checks a typed password against whichever storage format is configured. */
+	async verifyFallbackPassword(password: string): Promise<boolean> {
+		const { passwordSalt, passwordHash, passwordVerifier } = this.settings;
+		if (passwordVerifier) {
+			return verifyEncryptedVerifier(password, passwordSalt, passwordVerifier);
+		}
+		return verifyPassword(password, passwordSalt, passwordHash);
 	}
 
 	unlock(): void {

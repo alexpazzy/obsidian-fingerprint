@@ -1,6 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type TouchIDLockPlugin from "./main";
-import { generateSalt, hashPassword } from "./crypto";
+import { createEncryptedVerifier, generateSalt, hashPassword } from "./crypto";
 import { getBiometricMethodName, getBiometricPlatform, isBiometricPlatformSupported } from "./nativeAuth";
 import { isWebAuthnAvailable, registerSecurityKey, type SecurityKeyInfo } from "./webauthn";
 
@@ -15,6 +15,10 @@ export interface TouchIDLockSettings {
 	passwordFallbackEnabled: boolean;
 	passwordSalt: string;
 	passwordHash: string;
+	/** When true, new passwords are stored as an AES-GCM encrypted verifier instead of a hash. */
+	passwordEncrypted: boolean;
+	/** iv+ciphertext (hex) of the encrypted verifier; set instead of passwordHash in encrypted mode. */
+	passwordVerifier: string;
 	securityKeyEnabled: boolean;
 	securityKeys: SecurityKeyInfo[];
 }
@@ -29,9 +33,36 @@ export const DEFAULT_SETTINGS: TouchIDLockSettings = {
 	passwordFallbackEnabled: false,
 	passwordSalt: "",
 	passwordHash: "",
+	passwordEncrypted: false,
+	passwordVerifier: "",
 	securityKeyEnabled: false,
 	securityKeys: [],
 };
+
+/** True when a fallback password is configured in either storage format. */
+export function hasFallbackPassword(settings: TouchIDLockSettings): boolean {
+	return Boolean(settings.passwordHash || settings.passwordVerifier);
+}
+
+/**
+ * Stores `password` into `settings` (fresh salt each time), honoring the
+ * passwordEncrypted option: either a PBKDF2 hash or an AES-GCM encrypted
+ * verifier — never both. Caller is responsible for persisting the settings.
+ */
+export async function storeFallbackPassword(
+	settings: TouchIDLockSettings,
+	password: string
+): Promise<void> {
+	const salt = generateSalt();
+	settings.passwordSalt = salt;
+	if (settings.passwordEncrypted) {
+		settings.passwordVerifier = await createEncryptedVerifier(password, salt);
+		settings.passwordHash = "";
+	} else {
+		settings.passwordHash = await hashPassword(password, salt);
+		settings.passwordVerifier = "";
+	}
+}
 
 function clampSeconds(value: string): number {
 	const n = Math.floor(Number(value));
@@ -175,7 +206,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 			.setDesc("Show a password field on the lock screen alongside the Touch ID button.")
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.passwordFallbackEnabled).onChange(async (v) => {
-					if (v && !this.plugin.settings.passwordHash) {
+					if (v && !hasFallbackPassword(this.plugin.settings)) {
 						new Notice("Set a password below before turning this on.");
 						t.setValue(false);
 						return;
@@ -186,8 +217,26 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName(this.plugin.settings.passwordHash ? "Change password" : "Set password")
-			.setDesc("Stored as a salted PBKDF2 hash, never in plain text.")
+			.setName("Encrypt password data (end-to-end)")
+			.setDesc(
+				"Store an AES-256-GCM encrypted verifier instead of a password hash. The encryption key " +
+					"is derived from your password on this device and is never written anywhere, so " +
+					"data.json holds only ciphertext. Works the same on macOS and Windows."
+			)
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.passwordEncrypted).onChange(async (v) => {
+					this.plugin.settings.passwordEncrypted = v;
+					await this.plugin.saveSettings();
+					if (hasFallbackPassword(this.plugin.settings)) {
+						// An existing password can't be converted without knowing it.
+						new Notice("Re-enter and save your password below to apply the new storage mode.");
+					}
+				})
+			);
+
+		new Setting(containerEl)
+			.setName(hasFallbackPassword(this.plugin.settings) ? "Change password" : "Set password")
+			.setDesc("Stored as a salted PBKDF2 hash — or only as ciphertext with encryption enabled above. Never in plain text.")
 			.addText((t) => {
 				t.inputEl.type = "password";
 				t.setPlaceholder("New password (min. 4 characters)");
@@ -199,10 +248,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 						new Notice("Password must be at least 4 characters.");
 						return;
 					}
-					const salt = generateSalt();
-					const hash = await hashPassword(this.pendingPassword, salt);
-					this.plugin.settings.passwordSalt = salt;
-					this.plugin.settings.passwordHash = hash;
+					await storeFallbackPassword(this.plugin.settings, this.pendingPassword);
 					this.pendingPassword = "";
 					await this.plugin.saveSettings();
 					new Notice("Password saved.");
@@ -210,7 +256,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 				})
 			);
 
-		if (this.plugin.settings.passwordHash) {
+		if (hasFallbackPassword(this.plugin.settings)) {
 			new Setting(containerEl)
 				.setName("Clear password")
 				.setDesc("Removes the saved password and disables the fallback.")
@@ -221,6 +267,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 						.onClick(async () => {
 							this.plugin.settings.passwordSalt = "";
 							this.plugin.settings.passwordHash = "";
+							this.plugin.settings.passwordVerifier = "";
 							this.plugin.settings.passwordFallbackEnabled = false;
 							await this.plugin.saveSettings();
 							new Notice("Password cleared.");
