@@ -305,7 +305,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 	private renderClearPassword(setting: Setting): void {
 		setting.addButton((b) =>
 			b
-				.setWarning()
+				.setDestructive()
 				.setButtonText("Clear")
 				.onClick(async () => {
 					const settings = this.plugin.settings;
