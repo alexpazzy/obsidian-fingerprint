@@ -1,6 +1,8 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type TouchIDLockPlugin from "./main";
 import { generateSalt, hashPassword } from "./crypto";
+import { getBiometricMethodName, getBiometricPlatform, isBiometricPlatformSupported } from "./nativeAuth";
+import { isWebAuthnAvailable, registerSecurityKey, type SecurityKeyInfo } from "./webauthn";
 
 export interface TouchIDLockSettings {
 	lockOnStartup: boolean;
@@ -8,10 +10,13 @@ export interface TouchIDLockSettings {
 	lockOnBlurDelaySeconds: number;
 	lockOnIdle: boolean;
 	lockOnIdleDelaySeconds: number;
+	/** Prompt text shown in the biometric dialog (Touch ID and Windows Hello alike). */
 	touchIdReason: string;
 	passwordFallbackEnabled: boolean;
 	passwordSalt: string;
 	passwordHash: string;
+	securityKeyEnabled: boolean;
+	securityKeys: SecurityKeyInfo[];
 }
 
 export const DEFAULT_SETTINGS: TouchIDLockSettings = {
@@ -24,6 +29,8 @@ export const DEFAULT_SETTINGS: TouchIDLockSettings = {
 	passwordFallbackEnabled: false,
 	passwordSalt: "",
 	passwordHash: "",
+	securityKeyEnabled: false,
+	securityKeys: [],
 };
 
 function clampSeconds(value: string): number {
@@ -45,13 +52,15 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		const method = getBiometricMethodName();
+
 		containerEl.createEl("h2", { text: "Obsidian Fingerprint" });
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
 				"This is a screen lock, not encryption \u2014 your notes are never modified or encrypted on " +
-				"disk. It hides the Obsidian interface and requires Touch ID (or a fallback password) to see " +
-				"it again.",
+				`disk. It hides the Obsidian interface and requires ${method} (or a security key or fallback ` +
+				"password) to see it again.",
 		});
 
 		new Setting(containerEl)
@@ -112,40 +121,46 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 				);
 		}
 
-		new Setting(containerEl)
-			.setName("Touch ID prompt reason")
-			.setDesc('Shown inside the Touch ID dialog, e.g. "unlock your Obsidian vault".')
-			.addText((t) =>
-				t.setValue(this.plugin.settings.touchIdReason).onChange(async (v) => {
-					this.plugin.settings.touchIdReason = v.trim() || DEFAULT_SETTINGS.touchIdReason;
-					await this.plugin.saveSettings();
-				})
-			);
+		if (isBiometricPlatformSupported()) {
+			new Setting(containerEl)
+				.setName(`${method} prompt reason`)
+				.setDesc(`Shown inside the ${method} dialog, e.g. "unlock your Obsidian vault".`)
+				.addText((t) =>
+					t.setValue(this.plugin.settings.touchIdReason).onChange(async (v) => {
+						this.plugin.settings.touchIdReason = v.trim() || DEFAULT_SETTINGS.touchIdReason;
+						await this.plugin.saveSettings();
+					})
+				);
 
-		new Setting(containerEl)
-			.setName("Test Touch ID")
-			.setDesc("Trigger the Touch ID prompt right now, without locking the vault, to confirm setup works.")
-			.addButton((b) =>
-				b.setButtonText("Run test").onClick(async () => {
-					b.setDisabled(true);
-					b.setButtonText("Waiting for Touch ID\u2026");
-					const result = await this.plugin.runTouchIDAuth();
-					b.setDisabled(false);
-					b.setButtonText("Run test");
-					if (result.status === "success") {
-						new Notice("Touch ID succeeded.");
-					} else if (result.status === "not-installed") {
-						new Notice(
-							"Native helper not found. Build it with native/build.sh \u2014 see the plugin README.",
-							8000
-						);
-					} else if (result.status === "unavailable") {
-						new Notice(`Touch ID unavailable: ${result.message}`, 8000);
-					} else {
-						new Notice(`Touch ID failed: ${result.message}`, 8000);
-					}
-				})
-			);
+			new Setting(containerEl)
+				.setName(`Test ${method}`)
+				.setDesc(`Trigger the ${method} prompt right now, without locking the vault, to confirm setup works.`)
+				.addButton((b) =>
+					b.setButtonText("Run test").onClick(async () => {
+						b.setDisabled(true);
+						b.setButtonText(`Waiting for ${method}\u2026`);
+						const result = await this.plugin.runBiometricAuth();
+						b.setDisabled(false);
+						b.setButtonText("Run test");
+						if (result.status === "success") {
+							new Notice(`${method} succeeded.`);
+						} else if (result.status === "not-installed") {
+							new Notice(
+								getBiometricPlatform() === "windows-hello"
+									? "Helper script native/WindowsHelloAuth.ps1 not found \u2014 reinstall the plugin."
+									: "Native helper not found. Build it with native/build.sh \u2014 see the plugin README.",
+								8000
+							);
+						} else if (result.status === "unavailable") {
+							new Notice(`${method} unavailable: ${result.message}`, 8000);
+						} else {
+							new Notice(`${method} failed: ${result.message}`, 8000);
+						}
+					})
+				);
+		}
+
+		this.displaySecurityKeySection(containerEl);
 
 		containerEl.createEl("h3", { text: "Password fallback" });
 		containerEl.createEl("p", {
@@ -214,14 +229,109 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 				);
 		}
 
-		containerEl.createEl("h3", { text: "Native Touch ID helper" });
+		if (getBiometricPlatform() === "touchid") {
+			containerEl.createEl("h3", { text: "Native Touch ID helper" });
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text:
+					"This plugin shells out to a small, signed helper binary at native/Obsidian inside the " +
+					"plugin folder, which calls macOS's LocalAuthentication framework. Build it once by running " +
+					"native/build.sh in Terminal \u2014 see the README included with this plugin. Your fingerprint " +
+					"data never leaves the Secure Enclave and is never seen by this plugin or Obsidian.",
+			});
+		} else if (getBiometricPlatform() === "windows-hello") {
+			containerEl.createEl("h3", { text: "Windows Hello helper" });
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text:
+					"This plugin runs a small PowerShell script at native/WindowsHelloAuth.ps1 inside the " +
+					"plugin folder, which asks Windows Hello (fingerprint, face, or PIN) to verify you. " +
+					"There is nothing to build or install \u2014 it works out of the box. Your biometric data " +
+					"never leaves Windows and is never seen by this plugin or Obsidian.",
+			});
+		}
+	}
+
+	private displaySecurityKeySection(containerEl: HTMLElement): void {
+		containerEl.createEl("h3", { text: "Security keys" });
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
 			text:
-				"This plugin shells out to a small, signed helper binary at native/Obsidian inside the " +
-				"plugin folder, which calls macOS's LocalAuthentication framework. Build it once by running " +
-				"native/build.sh in Terminal \u2014 see the README included with this plugin. Your fingerprint " +
-				"data never leaves the Secure Enclave and is never seen by this plugin or Obsidian.",
+				"Unlock with a hardware security key (YubiKey or similar) over WebAuthn. Register a key " +
+				"here, then a \"Use security key\" button appears on the lock screen. Only keys registered " +
+				"below can unlock the vault.",
 		});
+
+		if (!isWebAuthnAvailable()) {
+			containerEl.createEl("p", {
+				cls: "setting-item-description",
+				text: "WebAuthn is not available in this Obsidian build, so security keys can't be used here.",
+			});
+			return;
+		}
+
+		new Setting(containerEl)
+			.setName("Unlock with a security key")
+			.setDesc("Show a security key button on the lock screen.")
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.securityKeyEnabled).onChange(async (v) => {
+					if (v && this.plugin.settings.securityKeys.length === 0) {
+						new Notice("Register a security key below before turning this on.");
+						t.setValue(false);
+						return;
+					}
+					this.plugin.settings.securityKeyEnabled = v;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Register a security key")
+			.setDesc("Insert your key, click Register, then touch the key when prompted.")
+			.addButton((b) =>
+				b.setButtonText("Register").onClick(async () => {
+					b.setDisabled(true);
+					b.setButtonText("Touch your key\u2026");
+					const result = await registerSecurityKey(this.plugin.settings.securityKeys);
+					b.setDisabled(false);
+					b.setButtonText("Register");
+					if (result.status === "registered") {
+						this.plugin.settings.securityKeys.push({
+							id: result.id,
+							label: `Security key ${this.plugin.settings.securityKeys.length + 1}`,
+							createdAt: Date.now(),
+						});
+						await this.plugin.saveSettings();
+						new Notice("Security key registered.");
+						this.display();
+					} else if (result.status === "unavailable") {
+						new Notice(`Can't register: ${result.message}`, 8000);
+					} else {
+						new Notice(`Registration failed: ${result.message}`, 8000);
+					}
+				})
+			);
+
+		for (const key of this.plugin.settings.securityKeys) {
+			new Setting(containerEl)
+				.setName(key.label)
+				.setDesc(`Registered ${new Date(key.createdAt).toLocaleDateString()}`)
+				.addButton((b) =>
+					b
+						.setWarning()
+						.setButtonText("Remove")
+						.onClick(async () => {
+							this.plugin.settings.securityKeys = this.plugin.settings.securityKeys.filter(
+								(k) => k.id !== key.id
+							);
+							if (this.plugin.settings.securityKeys.length === 0) {
+								this.plugin.settings.securityKeyEnabled = false;
+							}
+							await this.plugin.saveSettings();
+							new Notice("Security key removed.");
+							this.display();
+						})
+				);
+		}
 	}
 }

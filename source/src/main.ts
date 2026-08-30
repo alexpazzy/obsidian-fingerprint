@@ -1,7 +1,14 @@
 import { Plugin } from "obsidian";
 import { DEFAULT_SETTINGS, TouchIDLockSettingTab, type TouchIDLockSettings } from "./settings";
 import { LockScreen } from "./lockScreen";
-import { getNativeBinaryPath, isBiometricPlatformSupported, runTouchIDAuth, type TouchIDResult } from "./nativeAuth";
+import {
+	getBiometricMethodName,
+	getNativeHelperPath,
+	isBiometricPlatformSupported,
+	runBiometricAuth,
+	type BiometricResult,
+} from "./nativeAuth";
+import { authenticateSecurityKey, type SecurityKeyResult } from "./webauthn";
 
 const IDLE_CHECK_INTERVAL_MS = 5_000;
 const ACTIVITY_EVENTS: Array<keyof DocumentEventMap> = ["mousemove", "mousedown", "keydown", "scroll", "wheel"];
@@ -10,7 +17,7 @@ export default class TouchIDLockPlugin extends Plugin {
 	settings: TouchIDLockSettings = DEFAULT_SETTINGS;
 
 	private lockScreen!: LockScreen;
-	private nativeBinaryPath: string | null = null;
+	private nativeHelperPath: string | null = null;
 	private locked = false;
 
 	private blurTimeoutId: number | null = null;
@@ -20,7 +27,7 @@ export default class TouchIDLockPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		this.nativeBinaryPath = getNativeBinaryPath(this.app.vault, this.manifest.dir ?? "");
+		this.nativeHelperPath = getNativeHelperPath(this.app.vault, this.manifest.dir ?? "");
 		this.lockScreen = new LockScreen(this);
 
 		this.addSettingTab(new TouchIDLockSettingTab(this.app, this));
@@ -87,17 +94,27 @@ export default class TouchIDLockPlugin extends Plugin {
 		return this.locked;
 	}
 
-	async runTouchIDAuth(): Promise<TouchIDResult> {
+	async runBiometricAuth(): Promise<BiometricResult> {
 		if (!isBiometricPlatformSupported()) {
 			return {
 				status: "unavailable",
-				message: "Biometric unlock currently supports macOS Touch ID only. Windows Hello support is planned — use the password fallback for now.",
+				message:
+					"Biometric unlock supports macOS (Touch ID) and Windows (Windows Hello). " +
+					"On this platform, use a security key or the password fallback.",
 			};
 		}
-		if (!this.nativeBinaryPath) {
+		if (!this.nativeHelperPath) {
 			return { status: "not-installed" };
 		}
-		return runTouchIDAuth(this.nativeBinaryPath, this.settings.touchIdReason);
+		return runBiometricAuth(this.nativeHelperPath, this.settings.touchIdReason);
+	}
+
+	async runSecurityKeyAuth(): Promise<SecurityKeyResult> {
+		return authenticateSecurityKey(this.settings.securityKeys);
+	}
+
+	get biometricMethodName(): string {
+		return getBiometricMethodName();
 	}
 
 	resetBlurWatcher(): void {
