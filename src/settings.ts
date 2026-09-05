@@ -2,8 +2,7 @@ import {
 	App,
 	Notice,
 	PluginSettingTab,
-	Setting,
-	type ButtonComponent,
+	type Setting,
 	type SettingDefinitionItem,
 	type SettingGroupItem,
 } from "obsidian";
@@ -122,20 +121,6 @@ const WINDOWS_HELLO_HELPER_INFO =
 	"The plugin installs it for you on first load — there is nothing to build. Your biometric " +
 	"data never leaves Windows and is never seen by this plugin or Obsidian.";
 
-/**
- * Marks a button as destructive. setDestructive() replaced the deprecated
- * setWarning() in newer Obsidian builds; support both so the plugin still
- * renders correctly on the older versions it declares support for.
- */
-function markDestructive(button: ButtonComponent): void {
-	const candidate = button as Partial<ButtonComponent>;
-	if (typeof candidate.setDestructive === "function") {
-		candidate.setDestructive();
-		return;
-	}
-	button.setWarning();
-}
-
 export class TouchIDLockSettingTab extends PluginSettingTab {
 	plugin: TouchIDLockPlugin;
 	private pendingPassword = "";
@@ -143,33 +128,6 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: TouchIDLockPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
-	}
-
-	/**
-	 * Obsidian 1.13 introduced the declarative settings API (getSettingDefinitions
-	 * plus the renderer that consumes it, and update() to re-render). Older builds
-	 * have neither, so the tab must draw itself the old way there.
-	 */
-	private get supportsDeclarativeSettings(): boolean {
-		return typeof (this as { update?: unknown }).update === "function";
-	}
-
-	override display(): void {
-		if (this.supportsDeclarativeSettings) {
-			// 1.13+: the base class renders from getSettingDefinitions().
-			super.display();
-			return;
-		}
-		this.displayLegacy();
-	}
-
-	/** Re-render, whichever rendering path this Obsidian version is using. */
-	private refresh(): void {
-		if (this.supportsDeclarativeSettings) {
-			this.update();
-			return;
-		}
-		this.displayLegacy();
 	}
 
 	override getControlValue(key: string): unknown {
@@ -194,7 +152,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 			case "passwordFallbackEnabled":
 				if (value === true && !hasFallbackPassword(settings)) {
 					new Notice("Set a password below before turning this on.");
-					this.refresh();
+					this.update();
 					return;
 				}
 				settings.passwordFallbackEnabled = value === true;
@@ -216,7 +174,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 			case "securityKeyEnabled":
 				if (value === true && settings.securityKeys.length === 0) {
 					new Notice("Register a security key below before turning this on.");
-					this.refresh();
+					this.update();
 					return;
 				}
 				settings.securityKeyEnabled = value === true;
@@ -230,7 +188,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 		}
 		if (key === "lockOnBlur") this.plugin.resetBlurWatcher();
 		if (key === "lockOnIdle" || key === "lockOnIdleDelaySeconds") this.plugin.resetIdleWatcher();
-		if (key === "lockOnBlur" || key === "lockOnIdle") this.refresh();
+		if (key === "lockOnBlur" || key === "lockOnIdle") this.update();
 	}
 
 	override getSettingDefinitions(): SettingDefinitionItem[] {
@@ -337,7 +295,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 				} else {
 					new Notice(result.message, 10000);
 				}
-				this.refresh();
+				this.update();
 			})
 		);
 	}
@@ -450,15 +408,15 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					this.pendingPassword = "";
 					await this.plugin.saveSettings();
 					new Notice("Password saved.");
-					this.refresh();
+					this.update();
 				})
 			);
 	}
 
 	private renderClearPassword(setting: Setting): void {
-		setting.addButton((b) => {
-			markDestructive(b);
+		setting.addButton((b) =>
 			b
+				.setDestructive()
 				.setButtonText("Clear")
 				.onClick(async () => {
 					const settings = this.plugin.settings;
@@ -468,9 +426,9 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					settings.passwordFallbackEnabled = false;
 					await this.plugin.saveSettings();
 					new Notice("Password cleared.");
-					this.refresh();
-				});
-		});
+					this.update();
+				})
+		);
 	}
 
 	private securityKeyItems(): SettingDefinitionItem[] {
@@ -548,7 +506,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					});
 					await this.plugin.saveSettings();
 					new Notice("Security key registered.");
-					this.refresh();
+					this.update();
 				} else if (result.status === "unavailable") {
 					new Notice(`Can't register: ${result.message}`, 8000);
 				} else {
@@ -566,7 +524,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 		}
 		await this.plugin.saveSettings();
 		new Notice("Security key removed.");
-		this.refresh();
+		this.update();
 	}
 
 	private helperInfoItems(): SettingDefinitionItem[] {
@@ -601,215 +559,5 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 			];
 		}
 		return [];
-	}
-
-	/**
-	 * Imperative rendering for Obsidian builds older than 1.13, which have no
-	 * declarative settings renderer. Mirrors getSettingDefinitions() and shares
-	 * the same action handlers, so the two paths can't drift apart.
-	 */
-	private displayLegacy(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		const method = getBiometricMethodName();
-		const settings = this.plugin.settings;
-
-		containerEl.createEl("p", {
-			cls: "setting-item-description",
-			text:
-				"This is a screen lock, not encryption — your notes are never modified or encrypted on " +
-				`disk. It hides the Obsidian interface and requires ${method} (or a security key or fallback ` +
-				"password) to see it again.",
-		});
-
-		new Setting(containerEl)
-			.setName("Lock on startup")
-			.setDesc("Show the lock screen immediately whenever Obsidian opens this vault.")
-			.addToggle((t) =>
-				t.setValue(settings.lockOnStartup).onChange((v) => void this.setControlValue("lockOnStartup", v))
-			);
-
-		new Setting(containerEl)
-			.setName("Lock when Obsidian loses focus")
-			.setDesc("Lock after the app has been in the background for the delay below.")
-			.addToggle((t) =>
-				t.setValue(settings.lockOnBlur).onChange((v) => void this.setControlValue("lockOnBlur", v))
-			);
-
-		if (settings.lockOnBlur) {
-			new Setting(containerEl)
-				.setName("Lock-on-blur delay (seconds)")
-				.setDesc("How long Obsidian can sit unfocused before it locks. 0 locks instantly.")
-				.addText((t) =>
-					t
-						.setValue(String(settings.lockOnBlurDelaySeconds))
-						.onChange((v) => void this.setControlValue("lockOnBlurDelaySeconds", v))
-				);
-		}
-
-		new Setting(containerEl)
-			.setName("Lock after inactivity")
-			.setDesc("Lock automatically if there's no mouse or keyboard activity for a while.")
-			.addToggle((t) =>
-				t.setValue(settings.lockOnIdle).onChange((v) => void this.setControlValue("lockOnIdle", v))
-			);
-
-		if (settings.lockOnIdle) {
-			new Setting(containerEl)
-				.setName("Idle delay (seconds)")
-				.setDesc("How long the vault can sit idle before it locks.")
-				.addText((t) =>
-					t
-						.setValue(String(settings.lockOnIdleDelaySeconds))
-						.onChange((v) => void this.setControlValue("lockOnIdleDelaySeconds", v))
-				);
-		}
-
-		if (isBiometricPlatformSupported()) {
-			new Setting(containerEl)
-				.setName(`${method} prompt reason`)
-				.setDesc(`Shown inside the ${method} dialog, e.g. "unlock your Obsidian vault".`)
-				.addText((t) =>
-					t
-						.setValue(settings.touchIdReason)
-						.onChange((v) => void this.setControlValue("touchIdReason", v))
-				);
-
-			this.renderHelperSetup(
-				new Setting(containerEl)
-					.setName(`Install ${method} helper`)
-					.setDesc(this.helperSetupDescription()),
-				method
-			);
-
-			this.renderBiometricTest(
-				new Setting(containerEl)
-					.setName(`Test ${method}`)
-					.setDesc(
-						`Trigger the ${method} prompt right now, without locking the vault, to confirm setup works.`
-					),
-				method
-			);
-		}
-
-		this.displayLegacySecurityKeys(containerEl);
-		this.displayLegacyPerNote(containerEl);
-		this.displayLegacyPassword(containerEl);
-		this.displayLegacyHelperInfo(containerEl);
-	}
-
-	private displayLegacySecurityKeys(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Security keys").setHeading();
-		containerEl.createEl("p", { cls: "setting-item-description", text: SECURITY_KEY_INTRO });
-
-		if (!isWebAuthnAvailable()) {
-			containerEl.createEl("p", {
-				cls: "setting-item-description",
-				text: "WebAuthn is not available in this Obsidian build, so security keys can't be used here.",
-			});
-			return;
-		}
-
-		new Setting(containerEl)
-			.setName("Unlock with a security key")
-			.setDesc("Show a security key button on the lock screen.")
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.securityKeyEnabled)
-					.onChange((v) => void this.setControlValue("securityKeyEnabled", v))
-			);
-
-		this.renderRegisterKey(
-			new Setting(containerEl)
-				.setName("Register a security key")
-				.setDesc("Insert your key, click Register, then touch the key when prompted.")
-		);
-
-		this.plugin.settings.securityKeys.forEach((key, index) => {
-			new Setting(containerEl)
-				.setName(key.label)
-				.setDesc(`Registered ${new Date(key.createdAt).toLocaleDateString()}`)
-				.addButton((b) => {
-					markDestructive(b);
-					b.setButtonText("Remove").onClick(() => void this.removeSecurityKey(index));
-				});
-		});
-	}
-
-	private displayLegacyPerNote(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Per-note lock").setHeading();
-		containerEl.createEl("p", { cls: "setting-item-description", text: PER_NOTE_INTRO });
-		containerEl.createEl("p", { cls: "setting-item-description", text: PER_NOTE_CAVEAT });
-
-		new Setting(containerEl)
-			.setName("Lock individual notes")
-			.setDesc("Cover flagged notes until you authenticate.")
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.perNoteLockEnabled)
-					.onChange((v) => void this.setControlValue("perNoteLockEnabled", v))
-			);
-
-		if (this.plugin.settings.perNoteLockEnabled) {
-			new Setting(containerEl)
-				.setName("Frontmatter property")
-				.setDesc('The property that marks a note as locked, e.g. "fingerprint-lock: true".')
-				.addText((t) =>
-					t
-						.setValue(this.plugin.settings.lockedNoteProperty)
-						.onChange((v) => void this.setControlValue("lockedNoteProperty", v))
-				);
-		}
-	}
-
-	private displayLegacyPassword(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName("Password fallback").setHeading();
-		containerEl.createEl("p", { cls: "setting-item-description", text: PASSWORD_FALLBACK_INTRO });
-
-		new Setting(containerEl)
-			.setName("Enable password fallback")
-			.setDesc("Show a password field on the lock screen alongside the Touch ID button.")
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.passwordFallbackEnabled)
-					.onChange((v) => void this.setControlValue("passwordFallbackEnabled", v))
-			);
-
-		new Setting(containerEl)
-			.setName("Encrypt password data (end-to-end)")
-			.setDesc(PASSWORD_ENCRYPTION_DESC)
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.passwordEncrypted)
-					.onChange((v) => void this.setControlValue("passwordEncrypted", v))
-			);
-
-		this.renderSetPassword(
-			new Setting(containerEl)
-				.setName("Set password")
-				.setDesc(
-					"Stored as a salted PBKDF2 hash — or only as ciphertext with encryption enabled above. Never in plain text."
-				)
-		);
-
-		if (hasFallbackPassword(this.plugin.settings)) {
-			this.renderClearPassword(
-				new Setting(containerEl)
-					.setName("Clear password")
-					.setDesc("Removes the saved password and disables the fallback.")
-			);
-		}
-	}
-
-	private displayLegacyHelperInfo(containerEl: HTMLElement): void {
-		const platform = getBiometricPlatform();
-		if (platform === "touchid") {
-			new Setting(containerEl).setName("Native Touch ID helper").setHeading();
-			containerEl.createEl("p", { cls: "setting-item-description", text: TOUCH_ID_HELPER_INFO });
-		} else if (platform === "windows-hello") {
-			new Setting(containerEl).setName("Windows Hello helper").setHeading();
-			containerEl.createEl("p", { cls: "setting-item-description", text: WINDOWS_HELLO_HELPER_INFO });
-		}
 	}
 }

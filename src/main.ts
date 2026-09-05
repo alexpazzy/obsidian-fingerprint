@@ -62,7 +62,7 @@ export default class TouchIDLockPlugin extends Plugin {
 
 		this.addCommand({
 			id: "toggle-note-lock",
-			name: "Toggle fingerprint lock for this note",
+			name: "Toggle lock for this note",
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
 				if (!file) return false;
