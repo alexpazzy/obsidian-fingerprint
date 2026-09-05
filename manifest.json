@@ -1,7 +1,7 @@
 {
   "id": "fingerprint-lock",
   "name": "Fingerprint Lock",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "minAppVersion": "1.13.0",
   "description": "Lock your vault behind a full-screen lock screen and unlock it with your fingerprint via macOS Touch ID or Windows Hello, a hardware security key, or a fallback password.",
   "author": "Alex Paz",

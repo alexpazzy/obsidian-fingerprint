@@ -62,3 +62,21 @@
 	flex: 1;
 	min-width: 0;
 }
+
+.fingerprint-setup-helper-status {
+	margin: 0.5em 0 1em;
+	font-size: 0.9em;
+	color: var(--text-muted);
+}
+
+.fingerprint-setup-status-ok {
+	color: var(--text-success, var(--text-accent));
+}
+
+.fingerprint-setup-status-warn {
+	color: var(--text-warning, var(--text-error));
+}
+
+.fingerprint-hidden {
+	display: none;
+}

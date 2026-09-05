@@ -199,6 +199,14 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					control: { type: "text", key: "touchIdReason", placeholder: DEFAULT_SETTINGS.touchIdReason },
 				},
 				{
+					name: `Install ${method} helper`,
+					desc:
+						getBiometricPlatform() === "touchid"
+							? "The helper is built automatically when the plugin first loads. Rebuild it here if Touch ID stops working, or after installing the Xcode Command Line Tools."
+							: "The helper script is installed automatically when the plugin first loads. Reinstall it here if Windows Hello stops working.",
+					render: (setting: Setting) => this.renderHelperSetup(setting, method),
+				},
+				{
 					name: `Test ${method}`,
 					desc: `Trigger the ${method} prompt right now, without locking the vault, to confirm setup works.`,
 					render: (setting: Setting) => this.renderBiometricTest(setting, method),
@@ -208,6 +216,26 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 
 		items.push(...this.securityKeyItems(), this.passwordGroup(), ...this.helperInfoItems());
 		return items;
+	}
+
+	private renderHelperSetup(setting: Setting, method: string): void {
+		const isMac = getBiometricPlatform() === "touchid";
+		const label = isMac ? "Rebuild helper" : "Reinstall helper";
+		setting.addButton((b) =>
+			b.setButtonText(label).onClick(async () => {
+				b.setDisabled(true);
+				b.setButtonText(isMac ? "Building…" : "Installing…");
+				const result = await this.plugin.setUpNativeHelper({ force: true });
+				b.setDisabled(false);
+				b.setButtonText(label);
+				if (result.status === "ready") {
+					new Notice(`${method} helper is ready.`);
+				} else {
+					new Notice(result.message, 10000);
+				}
+				this.update();
+			})
+		);
 	}
 
 	private renderBiometricTest(setting: Setting, method: string): void {

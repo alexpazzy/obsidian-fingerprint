@@ -153,13 +153,21 @@ export class LockScreen {
 	private notInstalledMessage(): string {
 		// Only point at the password field when it's actually on screen.
 		const fallback = this.passwordFallbackAvailable() ? ", or use your password below" : "";
+		// Prefer the concrete reason the automatic setup failed, when there is one.
+		const setupError = this.plugin.helperSetupError;
+		if (setupError) {
+			return `${setupError}${fallback ? ` You can unlock with your password below.` : ""}`;
+		}
 		if (getBiometricPlatform() === "windows-hello") {
 			return (
 				"The Windows Hello helper script (native/WindowsHelloAuth.ps1) is missing from the " +
 				`plugin folder. Reinstall the plugin${fallback}.`
 			);
 		}
-		return `Native Touch ID helper isn't built yet. Run native/build.sh in the plugin folder, then try again${fallback}.`;
+		return (
+			"The Touch ID helper isn't installed. Rebuild it from this plugin's settings " +
+			`(it needs the Xcode Command Line Tools)${fallback}.`
+		);
 	}
 
 	private async attemptBiometric(): Promise<void> {

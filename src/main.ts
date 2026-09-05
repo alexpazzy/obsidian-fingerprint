@@ -9,12 +9,15 @@ import { LockScreen } from "./lockScreen";
 import { FirstRunSetupModal } from "./setupModal";
 import { verifyEncryptedVerifier, verifyPassword } from "./crypto";
 import {
+	ensureNativeHelper,
 	getBiometricMethodName,
+	getNativeDir,
 	getNativeHelperPath,
 	isBiometricPlatformSupported,
 	isNativeHelperInstalled,
 	runBiometricAuth,
 	type BiometricResult,
+	type HelperSetupResult,
 } from "./nativeAuth";
 import { authenticateSecurityKey, type SecurityKeyResult } from "./webauthn";
 
@@ -26,6 +29,9 @@ export default class TouchIDLockPlugin extends Plugin {
 
 	private lockScreen!: LockScreen;
 	private nativeHelperPath: string | null = null;
+	private nativeDir: string | null = null;
+	/** Why the last helper setup attempt failed, so the lock screen can explain. */
+	helperSetupError: string | null = null;
 	private locked = false;
 
 	private blurTimeoutId: number | null = null;
@@ -36,7 +42,9 @@ export default class TouchIDLockPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		this.nativeHelperPath = getNativeHelperPath(this.app.vault, this.manifest.dir ?? "");
+		const pluginDir = this.manifest.dir ?? "";
+		this.nativeHelperPath = getNativeHelperPath(this.app.vault, pluginDir);
+		this.nativeDir = getNativeDir(this.app.vault, pluginDir);
 		this.lockScreen = new LockScreen(this);
 
 		this.addSettingTab(new TouchIDLockSettingTab(this.app, this));
@@ -59,14 +67,7 @@ export default class TouchIDLockPlugin extends Plugin {
 		}
 
 		this.app.workspace.onLayoutReady(() => {
-			this.resetIdleWatcher();
-			if (this.firstRun) {
-				// No data.json yet: prompt for a fallback password before the
-				// first lock, so a biometric failure can't dead-end the user.
-				new FirstRunSetupModal(this.app, this, () => this.startupLock()).open();
-			} else {
-				this.startupLock();
-			}
+			void this.onLayoutReady();
 		});
 
 		this.register(() => {
@@ -74,6 +75,38 @@ export default class TouchIDLockPlugin extends Plugin {
 			if (this.idleIntervalId !== null) window.clearInterval(this.idleIntervalId);
 			this.lockScreen.hide();
 		});
+	}
+
+	private async onLayoutReady(): Promise<void> {
+		this.resetIdleWatcher();
+
+		if (this.firstRun) {
+			// No data.json yet: install the native helper and prompt for a
+			// fallback password before the first lock, so the user never has to
+			// run a build script and a biometric failure can't dead-end them.
+			new FirstRunSetupModal(this.app, this, () => this.startupLock()).open();
+			return;
+		}
+
+		// Keep the helper in place on later launches too: a plugin update
+		// replaces main.js only, and the helper can go missing or go stale.
+		await this.setUpNativeHelper();
+		this.startupLock();
+	}
+
+	/** Installs (and on macOS compiles) this platform's biometric helper. */
+	async setUpNativeHelper(options: { force?: boolean } = {}): Promise<HelperSetupResult> {
+		const result = await ensureNativeHelper(this.nativeDir, this.nativeHelperPath, options);
+		if (result.status === "ready") {
+			this.helperSetupError = null;
+		} else if (result.status === "failed") {
+			this.helperSetupError = result.message;
+		}
+		return result;
+	}
+
+	get isNativeHelperReady(): boolean {
+		return isNativeHelperInstalled(this.nativeHelperPath);
 	}
 
 	onunload(): void {
@@ -119,7 +152,7 @@ export default class TouchIDLockPlugin extends Plugin {
 	private hasUsableUnlockMethod(): boolean {
 		if (this.settings.passwordFallbackEnabled && this.hasFallbackPassword) return true;
 		if (this.settings.securityKeyEnabled && this.settings.securityKeys.length > 0) return true;
-		return isBiometricPlatformSupported() && isNativeHelperInstalled(this.nativeHelperPath);
+		return isBiometricPlatformSupported() && this.isNativeHelperReady;
 	}
 
 	get hasFallbackPassword(): boolean {

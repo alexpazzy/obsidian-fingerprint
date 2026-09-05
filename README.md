@@ -1,5 +1,7 @@
 # Fingerprint Lock
 
+[![Available in the Obsidian community plugins directory](https://img.shields.io/badge/Obsidian-Install%20from%20directory-7c3aed?logo=obsidian&logoColor=white)](https://community.obsidian.md/plugins/fingerprint-lock)
+
 Locks Obsidian behind a full-screen lock screen and unlocks it with your
 fingerprint — **macOS Touch ID** or **Windows Hello** (fingerprint, face, or
 PIN). Hardware **security keys** (YubiKey and similar, via WebAuthn) and an
@@ -15,8 +17,8 @@ call the OS biometric APIs directly — those are native APIs. So the plugin
 shells out to a tiny per-platform helper in its `native/` folder:
 
 - **macOS** — a Swift command-line helper (`native/TouchIDAuth.swift`) that
-  talks to the LocalAuthentication framework. You compile it once, locally,
-  with the included script.
+  talks to the LocalAuthentication framework. The plugin compiles and signs
+  it for you on first load; nothing to do by hand.
 - **Windows** — a PowerShell script (`native/WindowsHelloAuth.ps1`) that
   calls the WinRT `UserConsentVerifier` API. **Nothing to build or
   install** — Windows PowerShell 5.1 ships with every Windows 10/11 machine.
@@ -26,64 +28,85 @@ the scan and the helper only relays a yes/no answer.
 
 ---
 
-## 1. Install the plugin files
+## Install
 
-Copy this whole folder into your vault's plugins directory, so it becomes:
+### From the Obsidian community plugins directory (recommended)
+
+**[Install Fingerprint Lock](https://community.obsidian.md/plugins/fingerprint-lock)** — or, inside
+Obsidian: **Settings → Community plugins** → turn off "Restricted mode" →
+**Browse** → search for *Fingerprint Lock* → **Install**, then **Enable**.
+
+That's the whole install. There is **nothing to build and no terminal step**:
+the first time the plugin loads it writes its native helper into the plugin
+folder and, on macOS, compiles and signs it for you, then offers to set a
+fallback password. Installing this way also means Obsidian keeps the plugin
+updated for you.
+
+On macOS the automatic build needs the Xcode Command Line Tools (most
+developer Macs already have them). If they're missing, the plugin says so and
+you can install them with `xcode-select --install`, then press **Rebuild
+helper** in the plugin's settings. Your password fallback works either way.
+
+### Manually, without the directory
+
+Prefer to install by hand, or want to run an unreleased build? Download
+`main.js`, `manifest.json` and `styles.css` from the
+[latest release](https://github.com/alexpazzy/obsidian-fingerprint/releases/latest)
+and put them in a folder in your vault:
 
 ```
-<YourVault>/.obsidian/plugins/obsidian-fingerprint/
+<YourVault>/.obsidian/plugins/fingerprint-lock/
 ├── main.js
 ├── manifest.json
-├── styles.css
-└── native/
-    ├── TouchIDAuth.swift      (macOS)
-    ├── build.sh               (macOS)
-    └── WindowsHelloAuth.ps1   (Windows)
+└── styles.css
 ```
 
-Then in Obsidian: **Settings → Community plugins** → make sure "Restricted
-mode" is off → find "Fingerprint Lock" in the list → enable it.
+Then enable it under **Settings → Community plugins**. The helper sources are
+bundled inside `main.js`, so this path sets itself up exactly like the
+directory install does.
 
-## 2a. Windows setup
-
-There is none. If Windows Hello works on your machine (Settings → Accounts →
-Sign-in options — a fingerprint, face, or PIN is enrolled), the plugin works.
-Open **Settings → Fingerprint Lock → Test Windows Hello** to confirm:
-you should get the standard Windows Hello dialog.
-
-You can also test the helper standalone from a terminal:
+Release assets carry [GitHub artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations),
+so you can verify they were built from this repository:
 
 ```bash
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<YourVault>/.obsidian/plugins/obsidian-fingerprint/native/WindowsHelloAuth.ps1" -Reason "test run"
+gh attestation verify main.js -R alexpazzy/obsidian-fingerprint
 ```
 
-It prints `SUCCESS` (exit 0), `FAILURE:<reason>` (exit 1), or
-`UNAVAILABLE:<reason>` (exit 2) — the same protocol the macOS helper speaks.
+### Building the native helper yourself (optional)
 
-## 2b. macOS setup — build the Touch ID helper (one-time)
-
-You need Xcode or the Xcode Command Line Tools installed
-(`xcode-select --install` if you're not sure).
+The plugin does this for you. If you'd rather do it by hand — say you cloned
+the repo, or you edited `TouchIDAuth.swift` — the script is still there:
 
 ```bash
-cd "<YourVault>/.obsidian/plugins/obsidian-fingerprint/native"
+cd native
 ./build.sh
 ```
 
-This compiles `TouchIDAuth.swift` into a binary named `Obsidian` right next
-to it and ad-hoc code-signs it (required for LocalAuthentication to allow the
-prompt). The binary is deliberately named `Obsidian` because macOS displays
-the requesting process's name in the Touch ID dialog. You can test it
-standalone before touching Obsidian at all:
+It compiles `TouchIDAuth.swift` into a binary named `Obsidian` and ad-hoc
+code-signs it (required for LocalAuthentication to show the prompt). The
+binary is deliberately named `Obsidian` because macOS displays the requesting
+process's name in the Touch ID dialog. Test it standalone with:
 
 ```bash
 ./Obsidian --reason "test run"
 ```
 
-## 3. Configure in Obsidian
+On Windows there is nothing to compile at all: `WindowsHelloAuth.ps1` runs
+under the Windows PowerShell 5.1 that ships with every Windows 10/11 install.
+You can test it directly with:
 
-On the very first launch (before any settings exist), the plugin opens a
-setup dialog prompting you to create a fallback password — and it will not
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin folder>/native/WindowsHelloAuth.ps1" -Reason "test run"
+```
+
+Both helpers print `SUCCESS` (exit 0), `FAILURE:<reason>` (exit 1), or
+`UNAVAILABLE:<reason>` (exit 2).
+
+## Configure in Obsidian
+
+On the very first launch (before any settings exist), the plugin installs the
+native helper and opens a setup dialog prompting you to create a fallback
+password — and it will not
 lock the vault on startup until at least one unlock method can actually
 succeed, so you can never be dead-ended on a fresh install. This works the
 same on macOS and Windows 11.
@@ -92,6 +115,9 @@ Open **Settings → Fingerprint Lock**:
 
 - **Test Touch ID / Test Windows Hello** — confirms the plugin can call the
   helper, without locking anything.
+- **Rebuild helper / Reinstall helper** — re-runs the automatic setup. Use it
+  if biometrics stop working, or after installing the Xcode Command Line
+  Tools on macOS.
 - **Set a password fallback** — strongly recommended. If biometrics ever
   fail (sensor issue, external display, whatever), this is your way back
   in without touching the file system.
@@ -127,20 +153,23 @@ npm run build      # type-checks with tsc, then bundles main.js with esbuild
 
 **macOS**
 
-- **"Native helper not found"** — you haven't run `native/build.sh` yet, or
-  the vault isn't backed by the local filesystem (this plugin is
-  desktop-only and won't work on mobile).
-- **Touch ID prompt never appears / immediate failure** — re-run
-  `native/build.sh`; codesigning can be invalidated if you move or edit the
-  binary afterward. Confirm Touch ID works for *anything* on your Mac
-  first (System Settings → Touch ID & Password).
+- **"The Swift compiler isn't installed"** — the automatic build needs
+  `swiftc`. Run `xcode-select --install`, then press **Rebuild helper** in the
+  plugin's settings.
+- **"Native helper not found"** — the automatic build didn't finish, or the
+  vault isn't backed by the local filesystem (this plugin is desktop-only and
+  won't work on mobile). Press **Rebuild helper** in settings.
+- **Touch ID prompt never appears / immediate failure** — press **Rebuild
+  helper**; code signing can be invalidated if the binary is moved or edited
+  afterward. Confirm Touch ID works for *anything* on your Mac first
+  (System Settings → Touch ID & Password).
 
 **Windows**
 
 - **"Windows Hello unavailable: not set up"** — enroll a fingerprint, face,
   or PIN in Settings → Accounts → Sign-in options first.
-- **Helper script missing** — the plugin folder should contain
-  `native/WindowsHelloAuth.ps1`; if it doesn't, reinstall the plugin.
+- **Helper script missing** — the plugin writes `native/WindowsHelloAuth.ps1`
+  on load; if it's gone, press **Reinstall helper** in the plugin's settings.
 - **The prompt is slow to appear** — the first call spins up PowerShell,
   which can take a second or two; subsequent calls are usually faster.
 - **Hello dialog offers PIN, not just fingerprint** — that's by design:
@@ -159,7 +188,7 @@ npm run build      # type-checks with tsc, then bundles main.js with esbuild
 
 - **You're locked out with no password set** — quit Obsidian, then delete
   or rename the plugin folder
-  (`<YourVault>/.obsidian/plugins/obsidian-fingerprint`) from your file
+  (`<YourVault>/.obsidian/plugins/fingerprint-lock`) from your file
   manager or a terminal. Reopening the vault will start it without the
   plugin. This is exactly why the settings page nags you to set a password
   fallback.

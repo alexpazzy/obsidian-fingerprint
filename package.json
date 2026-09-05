@@ -1,6 +1,6 @@
 {
   "name": "fingerprint-lock",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Lock your Obsidian vault and unlock it with your fingerprint (macOS Touch ID or Windows Hello), a security key, or a fallback password.",
   "main": "main.js",
   "scripts": {

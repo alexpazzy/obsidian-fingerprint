@@ -30,6 +30,7 @@ const context = await esbuild.context({
 		...builtinModules,
 		...builtinModules.map((m) => `node:${m}`),
 	],
+	loader: { ".swift": "text", ".ps1": "text" },
 	format: "cjs",
 	target: "es2020",
 	logLevel: "info",
