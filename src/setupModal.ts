@@ -17,6 +17,8 @@ export class FirstRunSetupModal extends Modal {
 	private saving = false;
 	private finished = false;
 	private helperStatusEl: HTMLElement | null = null;
+	/** In-flight helper install, awaited on close so the lock check sees the truth. */
+	private helperSetupPromise: Promise<void> | null = null;
 	private helperRetryButton: HTMLElement | null = null;
 
 	constructor(app: App, plugin: TouchIDLockPlugin, onDone: () => void) {
@@ -29,7 +31,9 @@ export class FirstRunSetupModal extends Modal {
 		const { contentEl } = this;
 		const method = getBiometricMethodName();
 
-		this.setTitle("Set up Fingerprint Lock");
+		// titleEl rather than setTitle(), which is newer than this plugin's
+		// declared minimum Obsidian version.
+		this.titleEl.setText("Set up Fingerprint Lock");
 
 		contentEl.createEl("p", {
 			text:
@@ -43,7 +47,7 @@ export class FirstRunSetupModal extends Modal {
 		// Install the native helper for the user, rather than asking them to run
 		// a build script in a terminal. Status is reported inline below.
 		this.helperStatusEl = contentEl.createDiv({ cls: "fingerprint-setup-helper-status" });
-		void this.runHelperSetup();
+		this.helperSetupPromise = this.runHelperSetup();
 
 		let passwordInput: HTMLInputElement | null = null;
 		new Setting(contentEl).setName("Password").addText((t) => {
@@ -129,7 +133,9 @@ export class FirstRunSetupModal extends Modal {
 			return;
 		}
 		const setting = new Setting(this.contentEl).setName("Retry helper setup").addButton((b) =>
-			b.setButtonText("Try again").onClick(() => void this.runHelperSetup(true))
+			b.setButtonText("Try again").onClick(() => {
+				this.helperSetupPromise = this.runHelperSetup(true);
+			})
 		);
 		this.helperRetryButton = setting.settingEl;
 		// Keep the retry row directly under the status line it belongs to.
@@ -159,11 +165,27 @@ export class FirstRunSetupModal extends Modal {
 
 	onClose(): void {
 		this.contentEl.empty();
+		// The status line is detached now; stop any in-flight run from touching it.
+		this.helperStatusEl = null;
+		this.helperRetryButton = null;
 		if (this.finished) return;
 		this.finished = true;
-		// Persist whatever was chosen (possibly just defaults). This writes
-		// data.json, so the prompt won't reappear on the next launch.
-		void this.plugin.saveSettings().then(() => {
+
+		void (async () => {
+			// Persist whatever was chosen (possibly just defaults). This writes
+			// data.json, so the prompt won't reappear on the next launch.
+			await this.plugin.saveSettings();
+
+			// Compiling the macOS helper takes a few seconds. If the dialog is
+			// closed while that's still running, wait for it before handing back
+			// to the startup lock check — otherwise it sees no helper yet and
+			// wrongly reports that no unlock method is available.
+			try {
+				await this.helperSetupPromise;
+			} catch {
+				// Failures are already surfaced by runHelperSetup / the lock screen.
+			}
+
 			if (!hasFallbackPassword(this.plugin.settings)) {
 				new Notice(
 					"No fallback password set. You can add one anytime in Settings → Fingerprint Lock.",
@@ -171,6 +193,6 @@ export class FirstRunSetupModal extends Modal {
 				);
 			}
 			this.onDone();
-		});
+		})();
 	}
 }
