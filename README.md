@@ -132,9 +132,42 @@ Open **Settings → Fingerprint Lock**:
   goes through the same native Windows security dialog as Hello.
 - **Lock on startup / lock on blur / lock on idle** — pick whichever
   triggers you want, each with its own delay.
+- **Per-note lock** — cover individual notes behind the same unlock prompt
+  (see below).
 
 Once a password fallback is set, use the ribbon lock icon or the command
 palette ("Lock vault now") to test the full flow.
+
+---
+
+## Locking individual notes
+
+Turn on **Per-note lock** in settings, then flag a note by adding the
+property to its frontmatter:
+
+```yaml
+---
+fingerprint-lock: true
+---
+```
+
+Or put the cursor in the note and run **Toggle fingerprint lock for this
+note** from the command palette, which adds and removes the property for you.
+The property name is configurable, and `true`, `yes` and `1` all count.
+
+Flagged notes are covered with an unlock card offering the same methods as
+the vault lock screen — Touch ID or Windows Hello, a security key, or your
+fallback password. An unlocked note stays open until the vault locks, at
+which point every note re-locks with it.
+
+> [!warning]
+> **This hides notes; it does not encrypt them.** The text stays plaintext on
+> disk and is readable by any other plugin, by your sync client, and by
+> anyone opening the file outside Obsidian. Note titles still show up in
+> search and Quick Switcher, and the body can still surface in search results
+> and previews. Treat it as protection from someone reading over your
+> shoulder — not from someone with access to your files. For real protection,
+> keep the vault on an encrypted volume (see the note at the end).
 
 ---
 

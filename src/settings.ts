@@ -29,6 +29,10 @@ export interface TouchIDLockSettings {
 	passwordVerifier: string;
 	securityKeyEnabled: boolean;
 	securityKeys: SecurityKeyInfo[];
+	/** Cover individual notes flagged with the frontmatter property below. */
+	perNoteLockEnabled: boolean;
+	/** Frontmatter property that marks a note as locked. */
+	lockedNoteProperty: string;
 }
 
 export const DEFAULT_SETTINGS: TouchIDLockSettings = {
@@ -45,6 +49,8 @@ export const DEFAULT_SETTINGS: TouchIDLockSettings = {
 	passwordVerifier: "",
 	securityKeyEnabled: false,
 	securityKeys: [],
+	perNoteLockEnabled: false,
+	lockedNoteProperty: "fingerprint-lock",
 };
 
 /** True when a fallback password is configured in either storage format. */
@@ -92,6 +98,17 @@ const PASSWORD_ENCRYPTION_DESC =
 	"Store an AES-256-GCM encrypted verifier instead of a password hash. The encryption key " +
 	"is derived from your password on this device and is never written anywhere, so " +
 	"data.json holds only ciphertext. Works the same on macOS and Windows.";
+
+const PER_NOTE_INTRO =
+	"Cover individual notes with an unlock prompt. Add the property below to a note's " +
+	"frontmatter (or use the \"Toggle fingerprint lock for this note\" command) and it stays " +
+	"covered until you authenticate. Unlocked notes re-lock when the vault locks.";
+
+const PER_NOTE_CAVEAT =
+	"This hides notes in Obsidian's interface — it does not encrypt them. The text remains " +
+	"readable on disk, to other plugins, and to sync clients, and note titles still appear in " +
+	"search and Quick Switcher. Use it to keep notes from being read over your shoulder, not to " +
+	"protect them from someone with access to the files.";
 
 const TOUCH_ID_HELPER_INFO =
 	"This plugin shells out to a small, signed helper binary at native/Obsidian inside the " +
@@ -189,6 +206,13 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					new Notice("Re-enter and save your password below to apply the new storage mode.");
 				}
 				break;
+			case "perNoteLockEnabled":
+				settings.perNoteLockEnabled = value === true;
+				break;
+			case "lockedNoteProperty":
+				settings.lockedNoteProperty =
+					String(value ?? "").trim() || DEFAULT_SETTINGS.lockedNoteProperty;
+				break;
 			case "securityKeyEnabled":
 				if (value === true && settings.securityKeys.length === 0) {
 					new Notice("Register a security key below before turning this on.");
@@ -201,6 +225,9 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 				return;
 		}
 		await this.plugin.saveSettings();
+		if (key === "perNoteLockEnabled" || key === "lockedNoteProperty") {
+			this.plugin.refreshNoteGuard();
+		}
 		if (key === "lockOnBlur") this.plugin.resetBlurWatcher();
 		if (key === "lockOnIdle" || key === "lockOnIdleDelaySeconds") this.plugin.resetIdleWatcher();
 		if (key === "lockOnBlur" || key === "lockOnIdle") this.refresh();
@@ -280,7 +307,12 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 			);
 		}
 
-		items.push(...this.securityKeyItems(), this.passwordGroup(), ...this.helperInfoItems());
+		items.push(
+			...this.securityKeyItems(),
+			this.perNoteGroup(),
+			this.passwordGroup(),
+			...this.helperInfoItems()
+		);
 		return items;
 	}
 
@@ -334,6 +366,32 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 				}
 			})
 		);
+	}
+
+	private perNoteGroup(): SettingDefinitionItem {
+		return {
+			type: "group",
+			heading: "Per-note lock",
+			items: [
+				{ name: "", desc: PER_NOTE_INTRO, searchable: false },
+				{ name: "", desc: PER_NOTE_CAVEAT, searchable: false },
+				{
+					name: "Lock individual notes",
+					desc: "Cover flagged notes until you authenticate.",
+					control: { type: "toggle", key: "perNoteLockEnabled", defaultValue: false },
+				},
+				{
+					name: "Frontmatter property",
+					desc: 'The property that marks a note as locked, e.g. "fingerprint-lock: true".',
+					visible: () => this.plugin.settings.perNoteLockEnabled,
+					control: {
+						type: "text",
+						key: "lockedNoteProperty",
+						placeholder: DEFAULT_SETTINGS.lockedNoteProperty,
+					},
+				},
+			],
+		};
 	}
 
 	private passwordGroup(): SettingDefinitionItem {
@@ -636,6 +694,7 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 		}
 
 		this.displayLegacySecurityKeys(containerEl);
+		this.displayLegacyPerNote(containerEl);
 		this.displayLegacyPassword(containerEl);
 		this.displayLegacyHelperInfo(containerEl);
 	}
@@ -676,6 +735,32 @@ export class TouchIDLockSettingTab extends PluginSettingTab {
 					b.setButtonText("Remove").onClick(() => void this.removeSecurityKey(index));
 				});
 		});
+	}
+
+	private displayLegacyPerNote(containerEl: HTMLElement): void {
+		new Setting(containerEl).setName("Per-note lock").setHeading();
+		containerEl.createEl("p", { cls: "setting-item-description", text: PER_NOTE_INTRO });
+		containerEl.createEl("p", { cls: "setting-item-description", text: PER_NOTE_CAVEAT });
+
+		new Setting(containerEl)
+			.setName("Lock individual notes")
+			.setDesc("Cover flagged notes until you authenticate.")
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.perNoteLockEnabled)
+					.onChange((v) => void this.setControlValue("perNoteLockEnabled", v))
+			);
+
+		if (this.plugin.settings.perNoteLockEnabled) {
+			new Setting(containerEl)
+				.setName("Frontmatter property")
+				.setDesc('The property that marks a note as locked, e.g. "fingerprint-lock: true".')
+				.addText((t) =>
+					t
+						.setValue(this.plugin.settings.lockedNoteProperty)
+						.onChange((v) => void this.setControlValue("lockedNoteProperty", v))
+				);
+		}
 	}
 
 	private displayLegacyPassword(containerEl: HTMLElement): void {
